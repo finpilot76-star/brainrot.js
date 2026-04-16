@@ -1,100 +1,45 @@
-FROM python:3.9-slim
+# Stage 1: Build
+FROM node:22-bookworm-slim AS builder
 
-# Install all system dependencies in one layer to minimize disk usage
-# Fix for GPG signature issues and ensure clean state
-RUN rm -rf /var/lib/apt/lists/* && \
-    apt-get clean && \
-    apt-get update --allow-releaseinfo-change --allow-insecure-repositories && \
-    apt-get install -y --no-install-recommends \
-    curl \
-    gnupg2 \
-    unzip \
-    build-essential \
-    ffmpeg \
-    vim \
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
-    libgbm1 \
-    libgcc1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
-    libxss1 \
-    libxtst6 \
-    lsb-release \
-    wget \
-    xdg-utils \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# Install Node.js and npm for ARM
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --allow-insecure-repositories nodejs && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# System-Abhängigkeiten für Canvas und Rendering
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    pkg-config \
+    libcairo2-dev \
+    libpango1.0-dev \
+    libjpeg-dev \
+    libgif-dev \
+    librsvg2-dev
 
-# Install bun and add to PATH
-RUN curl -fsSL https://bun.sh/install | bash && \
-    ln -s /root/.bun/bin/bun /usr/local/bin/bun
+COPY package.json bun.lockb* ./
+RUN npm install
 
-RUN python3 -m pip install --upgrade pip
+COPY . .
+RUN npm run build
 
-WORKDIR /app/brainrot
+# Stage 2: Runner
+FROM node:22-bookworm-slim
 
-# Copy package files first to leverage Docker cache
-COPY ./package*.json /app/brainrot/
+WORKDIR /app
 
-# Python setup
-COPY transcribe/requirements.txt /app/brainrot/
-RUN cd /app/brainrot/ && pip3 install -r requirements.txt
+# Installation von Chrome für Remotion & FFmpeg für Video-Encoding
+RUN apt-get update && apt-get install -y \
+    libnss3 libdbus-1-3 libatk1.0-0 libgbm-dev libasound2 \
+    libxrandr2 libxkbcommon-dev libxfixes3 libxcomposite1 \
+    libxdamage1 libatk-bridge2.0-0 libpango-1-0-0 libcairo2 libcups2 \
+    ffmpeg chromium \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY transcribe/setup.py /app/brainrot/setup.py
-COPY transcribe/transcribe.py /app/brainrot/transcribe.py
-COPY transcribe/whisper_timestamped /app/brainrot/whisper_timestamped
+COPY --from=builder /app /app
 
-RUN cd /app/brainrot/ && pip3 install ".[dev]"
+# Umgebungsvariablen für Headless Chrome
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV REMOTION_CHROME_EXECUTABLE_PATH=/usr/bin/chromium
 
-RUN pip3 install \
-    torch==1.13.1 \
-    torchaudio==0.13.1 \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+EXPOSE 3000
 
-RUN pip3 install gunicorn
-
-# Copy the rest of the application
-COPY . /app/brainrot
-
-RUN rm -rf /app/brainrot/node_modules
-RUN rm -f /app/brainrot/package-lock.json
-RUN rm -f /app/brainrot/bun.lockb
-
-RUN bun install 
-RUN bun install -g pm2
-
-RUN chmod +x /app/brainrot/scripts/generate.sh
-
-CMD ["/app/brainrot/scripts/generate.sh"]
+CMD ["npm", "run", "start"]
