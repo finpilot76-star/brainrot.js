@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pixelbanana-brainrot-web
+    env: docker
+    plan: standard 
+    region: frankfurt
+    dockerContext: .
+    dockerfilePath: ./generate/Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SPEECHIFY_API_KEY
+        sync: false
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
